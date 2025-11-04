@@ -345,12 +345,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		// CRITICAL: Limit pods panel content to prevent overflow
-		// podsPanelHeight is 9, so max content lines = 9 - 5 (border/padding/title) = 4
-		// Keep it very small to ensure pods panel always fits and stays visible
+		// podsPanelHeight is 12, so max content lines = 12 - 5 (border/padding/title) = 7
+		// Allow more content since we have scroll support
 		podsContent := msg.content
-		if len(podsContent) > 5 {
-			// Keep only first 5 lines (header + 3-4 pod entries max)
-			podsContent = podsContent[:5]
+		// Don't limit content - let scroll handle it
+		// But keep a reasonable limit to prevent memory issues (max 100 pods)
+		if len(podsContent) > 100 {
+			podsContent = podsContent[:100]
 		}
 
 		// Preserve scroll position if content length is similar
@@ -611,10 +612,10 @@ func (m model) renderPanelView() string {
 	footerHeight := 6
 	availableHeight := m.height - footerHeight
 
-	// Pods panel is fixed at the top with a small, constant height
-	// This ensures it stays visible and doesn't push content down
-	// Keep it small to guarantee it always fits
-	podsPanelHeight := 9 // Fixed small height for pods panel (includes border/padding)
+	// Pods panel is fixed at the top with a reasonable height
+	// This ensures it stays visible and can show more pods with scroll
+	// Increased height to show more pods (12 lines can show ~8-10 pods)
+	podsPanelHeight := 12 // Fixed height for pods panel (includes border/padding)
 
 	// Remaining height goes to single active log panel
 	// Show only ONE log panel at a time (Tab to switch between them)
@@ -631,9 +632,9 @@ func (m model) renderPanelView() string {
 
 	// Update panel maxLines (subtract border and padding: ~3 lines)
 	if m.podsPanel != nil {
-		// Pods panel has fixed small height (9), limit content to 4 lines max
-		// This ensures it never exceeds its allocated space and always stays visible
-		m.podsPanel.maxLines = 4 // Maximum 4 lines of content (9 - 5 for border/padding/title)
+		// Pods panel has fixed height (12), allow more content with scroll
+		// This ensures it never exceeds its allocated space but can scroll to show more
+		m.podsPanel.maxLines = 7 // Maximum 7 lines of visible content (12 - 5 for border/padding/title)
 	}
 	for _, p := range m.logsPanels {
 		// Log panels: use available height since we show only one at a time
@@ -729,7 +730,7 @@ func (m model) renderPanelView() string {
 	}
 	combined := lipgloss.JoinVertical(lipgloss.Left, combinedSections...)
 
-	// Add footer - show current log panel info
+	// Add footer - show current log panel info and active pod name
 	var footer string
 	if len(m.logsPanels) > 0 {
 		activeLogIndex := -1
@@ -740,9 +741,22 @@ func (m model) renderPanelView() string {
 		}
 		currentPanel := activeLogIndex + 1
 		totalPanels := len(m.logsPanels)
+
+		// Get active pod name for display
+		activePodDisplay := ""
+		if activeLogIndex >= 0 && activeLogIndex < len(m.logsPanels) {
+			title := m.logsPanels[activeLogIndex].title
+			activePodDisplay = strings.TrimPrefix(title, "Logs: ")
+			// Truncate long pod names for display
+			if len(activePodDisplay) > 40 {
+				activePodDisplay = activePodDisplay[:37] + "..."
+			}
+		}
+
 		footer = fmt.Sprintf(
-			"\n%s | Tab: Switch log panel (%d/%d) | ↑↓: Scroll | b: Back | q: Quit",
+			"\n%s | Active: %s | Tab: Switch (%d/%d) | ↑↓: Scroll | b: Back | q: Quit",
 			titleStyle.Render(fmt.Sprintf("Namespace: %s", m.selectedNS)),
+			activePodDisplay,
 			currentPanel, totalPanels,
 		)
 	} else {
@@ -763,7 +777,8 @@ func (m model) renderPanelWithHighlight(p *panel, active bool, maxHeight int, wi
 
 	content := strings.Join(p.content, "\n")
 
-	// If this is pods panel and we have a pod name to highlight, highlight it
+	// If this is pods panel and we have a pod name to highlight, highlight it and auto-scroll
+	activePodLineIndex := -1
 	if highlightPodName != "" && strings.Contains(p.title, "Pods in") {
 		lines := strings.Split(content, "\n")
 		highlightedLines := make([]string, len(lines))
@@ -784,8 +799,9 @@ func (m model) renderPanelWithHighlight(p *panel, active bool, maxHeight int, wi
 					strings.HasPrefix(podName, highlightPodName) ||
 					strings.HasPrefix(highlightPodName, podName)
 				if matches {
-					// Highlight this line
+					// Highlight this line and remember its index
 					highlightedLines[i] = selectedStyle.Render(line)
+					activePodLineIndex = i
 				} else {
 					highlightedLines[i] = line
 				}
@@ -794,6 +810,39 @@ func (m model) renderPanelWithHighlight(p *panel, active bool, maxHeight int, wi
 			}
 		}
 		content = strings.Join(highlightedLines, "\n")
+
+		// Auto-scroll to active pod if it's not visible
+		if activePodLineIndex >= 0 {
+			// Calculate how many content lines we can show (after header)
+			availableContentLines := max(1, maxHeight-5)
+			// Find header line (usually first line or second line)
+			headerLineIndex := -1
+			for i, line := range lines {
+				if strings.HasPrefix(strings.TrimSpace(line), "NAME") {
+					headerLineIndex = i
+					break
+				}
+			}
+			if headerLineIndex < 0 {
+				headerLineIndex = 0
+			}
+
+			// Calculate visible range (scrollPos is offset from start, header is included)
+			visibleStart := p.scrollPos
+			visibleEnd := visibleStart + availableContentLines
+
+			// If active pod is not in visible range, scroll to it
+			if activePodLineIndex < visibleStart || activePodLineIndex >= visibleEnd {
+				// Scroll so that active pod is visible (preferably in the middle)
+				// Make sure we account for header
+				scrollOffset := max(0, activePodLineIndex-(availableContentLines/2))
+				// Ensure scroll doesn't go before header
+				if scrollOffset <= headerLineIndex {
+					scrollOffset = headerLineIndex + 1
+				}
+				p.scrollPos = scrollOffset
+			}
+		}
 	}
 
 	// Scroll the content
