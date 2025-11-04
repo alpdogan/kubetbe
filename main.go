@@ -38,19 +38,21 @@ var (
 )
 
 type model struct {
-	state        string // "namespace_select", "panel_view"
-	namespaces   []string
-	cursor       int
-	selectedNS   string
-	podsPanel    *panel
-	logsPanels   []*panel
-	activePanel  int
-	logPageIndex int // Current page index for log panels (0-based, 4 panels per page)
-	width        int
-	height       int
-	err          error
-	quit         bool
-	searchTerm   string // Search term for namespace filtering
+	state              string // "namespace_select", "panel_view"
+	namespaces         []string
+	cursor             int
+	selectedNS         string
+	podsPanel          *panel
+	logsPanels         []*panel
+	activePanel        int
+	logPageIndex       int // Current page index for log panels (0-based, 4 panels per page)
+	width              int
+	height             int
+	err                error
+	quit               bool
+	searchTerm         string // Search term for namespace filtering
+	namespaceWatch     bool   // Auto-refresh namespace list
+	deleteConfirmation string // Namespace to delete (empty if no confirmation pending)
 }
 
 type panel struct {
@@ -110,8 +112,11 @@ func initialModel(searchTerm string) model {
 }
 
 func (m model) Init() tea.Cmd {
+	// Start namespace watch by default
+	m.namespaceWatch = true
 	return tea.Batch(
 		fetchNamespaces(m.searchTerm),
+		tick(),
 		tea.EnterAltScreen,
 	)
 }
@@ -152,8 +157,31 @@ func fetchNamespaces(searchTerm string) tea.Cmd {
 	}
 }
 
+func deleteNamespace(namespace string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("kubectl", "delete", "namespace", namespace)
+		err := cmd.Run()
+		if err != nil {
+			return namespaceDeleteMsg{
+				namespace: namespace,
+				err:       fmt.Errorf("failed to delete namespace: %v", err),
+			}
+		}
+		// After successful delete, refresh the namespace list
+		return namespaceDeleteMsg{
+			namespace: namespace,
+			err:       nil,
+		}
+	}
+}
+
 type namespaceListMsg struct {
 	namespaces []string
+}
+
+type namespaceDeleteMsg struct {
+	namespace string
+	err       error
 }
 
 type errorMsg struct {
@@ -194,6 +222,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "up", "k":
 			if m.state == "namespace_select" {
+				m.deleteConfirmation = "" // Clear delete confirmation on navigation
 				if m.cursor > 0 {
 					m.cursor--
 				}
@@ -212,6 +241,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "down", "j":
 			if m.state == "namespace_select" {
+				m.deleteConfirmation = "" // Clear delete confirmation on navigation
 				if m.cursor < len(m.namespaces)-1 {
 					m.cursor++
 				}
@@ -293,6 +323,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				)
 			}
 
+		case "r":
+			if m.state == "namespace_select" {
+				// Refresh namespace list
+				m.deleteConfirmation = "" // Clear any pending delete confirmation
+				return m, tea.Batch(
+					fetchNamespaces(m.searchTerm),
+					tick(), // Continue watch
+				)
+			}
+
+		case "d":
+			if m.state == "namespace_select" && len(m.namespaces) > 0 {
+				selectedNamespace := m.namespaces[m.cursor]
+				// If already confirming, delete the namespace
+				if m.deleteConfirmation == selectedNamespace {
+					// Actually delete the namespace
+					return m, deleteNamespace(selectedNamespace)
+				} else {
+					// Ask for confirmation
+					m.deleteConfirmation = selectedNamespace
+				}
+			}
+
 		case "tab":
 			if m.state == "panel_view" {
 				m.activePanel = (m.activePanel + 1) % (1 + len(m.logsPanels))
@@ -321,7 +374,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.podsPanel = nil
 				m.logsPanels = []*panel{}
 				m.activePanel = 0
-				return m, fetchNamespaces(m.searchTerm)
+				return m, tea.Batch(
+					fetchNamespaces(m.searchTerm),
+					tick(), // Continue namespace watch
+				)
+			}
+
+		// Clear delete confirmation on any other key press (except d)
+		default:
+			if m.state == "namespace_select" && m.deleteConfirmation != "" {
+				// Only clear if it's not a navigation key we already handle
+				if msg.String() != "d" && msg.String() != "enter" && msg.String() != "q" && msg.String() != "r" {
+					m.deleteConfirmation = ""
+				}
 			}
 		}
 
@@ -333,6 +398,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errorMsg:
 		m.err = msg.err
+
+	case namespaceDeleteMsg:
+		m.deleteConfirmation = "" // Clear confirmation after delete attempt
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			// Successfully deleted, refresh namespace list
+			return m, tea.Batch(
+				fetchNamespaces(m.searchTerm),
+				tick(), // Continue namespace watch
+			)
+		}
 
 	case podUpdateMsg:
 		// Ensure podsPanel exists
@@ -406,8 +483,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tickMsg:
+		var cmds []tea.Cmd
+
+		// Refresh namespace list if watching
+		if m.state == "namespace_select" && m.namespaceWatch {
+			cmds = append(cmds, fetchNamespaces(m.searchTerm))
+		}
+
+		// Refresh pods and logs if in panel view
 		if m.state == "panel_view" && m.podsPanel != nil && m.podsPanel.watch {
-			var cmds []tea.Cmd
 			cmds = append(cmds, startPodsWatch(m.selectedNS))
 
 			// Also refresh logs for all pods
@@ -417,7 +501,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmds = append(cmds, startLogWatch(podName, m.selectedNS))
 				}
 			}
+		}
 
+		if len(cmds) > 0 {
 			return m, tea.Batch(append(cmds, tick())...)
 		}
 		return m, nil
@@ -592,7 +678,21 @@ func (m model) renderNamespaceSelect() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString("↑↓: Select, Enter: Confirm, q: Quit")
+
+	// Show delete confirmation if pending
+	if m.deleteConfirmation != "" {
+		b.WriteString(errorStyle.Render(fmt.Sprintf("\n⚠️  Delete namespace '%s'? Press 'd' again to confirm, any other key to cancel\n", m.deleteConfirmation)))
+	}
+
+	// Show help text
+	helpText := "↑↓: Select, Enter: Confirm"
+	if m.namespaceWatch {
+		helpText += ", R: Refresh, d: Delete"
+	} else {
+		helpText += ", R: Refresh, d: Delete"
+	}
+	helpText += ", q: Quit"
+	b.WriteString(helpText)
 
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, b.String())
 }
