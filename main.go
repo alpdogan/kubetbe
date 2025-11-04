@@ -647,11 +647,28 @@ func (m model) renderPanelView() string {
 
 	var sections []string
 
+	// Find active pod name for highlighting in pods panel
+	activePodName := ""
+	if len(m.logsPanels) > 0 {
+		activeLogIndex := -1
+		if m.activePanel > 0 && m.activePanel <= len(m.logsPanels) {
+			activeLogIndex = m.activePanel - 1
+		} else if len(m.logsPanels) > 0 {
+			activeLogIndex = 0
+		}
+		if activeLogIndex >= 0 && activeLogIndex < len(m.logsPanels) {
+			// Extract pod name from log panel title (format: "Logs: pod-name-...")
+			title := m.logsPanels[activeLogIndex].title
+			activePodName = strings.TrimPrefix(title, "Logs: ")
+		}
+	}
+
 	// CRITICAL: Pods panel - ALWAYS render first, fixed at top
 	// This ensures it never gets covered and always stays visible
 	// Render it with fixed height regardless of activePanel state
+	// Pass activePodName to highlight the active pod in the list
 	if m.podsPanel != nil {
-		podsContent := m.renderPanel(m.podsPanel, m.activePanel == 0, podsPanelHeight, m.width)
+		podsContent := m.renderPanelWithHighlight(m.podsPanel, m.activePanel == 0, podsPanelHeight, m.width, activePodName)
 		// CRITICAL: Ensure pods panel doesn't exceed its allocated height
 		// This prevents overlapping with log panels
 		podsLines := strings.Split(podsContent, "\n")
@@ -736,6 +753,140 @@ func (m model) renderPanelView() string {
 	}
 
 	return combined + footer
+}
+
+func (m model) renderPanelWithHighlight(p *panel, active bool, maxHeight int, width int, highlightPodName string) string {
+	// Same as renderPanel but highlights the pod in the list if it matches highlightPodName
+	if p == nil {
+		return ""
+	}
+
+	content := strings.Join(p.content, "\n")
+
+	// If this is pods panel and we have a pod name to highlight, highlight it
+	if highlightPodName != "" && strings.Contains(p.title, "Pods in") {
+		lines := strings.Split(content, "\n")
+		highlightedLines := make([]string, len(lines))
+		for i, line := range lines {
+			// Check if this line contains the pod name (pod name is usually the first field)
+			// Skip header lines
+			if strings.HasPrefix(strings.TrimSpace(line), "NAME") || strings.TrimSpace(line) == "" {
+				highlightedLines[i] = line
+				continue
+			}
+			fields := strings.Fields(line)
+			if len(fields) > 0 {
+				podName := fields[0]
+				// Check if this pod matches the active pod
+				// Pod names should match exactly, but we also check prefix match for cases where
+				// pod names might have slight variations
+				matches := podName == highlightPodName ||
+					strings.HasPrefix(podName, highlightPodName) ||
+					strings.HasPrefix(highlightPodName, podName)
+				if matches {
+					// Highlight this line
+					highlightedLines[i] = selectedStyle.Render(line)
+				} else {
+					highlightedLines[i] = line
+				}
+			} else {
+				highlightedLines[i] = line
+			}
+		}
+		content = strings.Join(highlightedLines, "\n")
+	}
+
+	// Scroll the content
+	lines := strings.Split(content, "\n")
+
+	// CRITICAL: Calculate available content lines from maxHeight ONLY
+	// maxHeight includes border (~2) + padding (~2) + title (~1) + content
+	// So content should be maxHeight - 5 lines maximum
+	availableContentLines := max(1, maxHeight-5)
+
+	// ALWAYS use availableContentLines as the hard limit for ALL panels
+	// This ensures panels never grow beyond their allocated space
+	// p.maxLines is just a suggestion, but availableContentLines is the absolute limit
+	displayLines := min(p.maxLines, availableContentLines)
+	// But never exceed availableContentLines - this is the hard limit for all panels
+	if displayLines > availableContentLines {
+		displayLines = availableContentLines
+	}
+
+	// Calculate max scroll position
+	maxScroll := max(0, len(lines)-displayLines)
+	// Ensure scroll position is within bounds
+	if p.scrollPos > maxScroll {
+		p.scrollPos = maxScroll
+	}
+	if p.scrollPos < 0 {
+		p.scrollPos = 0
+	}
+
+	// Get visible lines - exactly displayLines, no more
+	// CRITICAL: Never exceed availableContentLines
+	start := p.scrollPos
+	maxAllowedLines := min(displayLines, availableContentLines)
+	end := min(len(lines), start+maxAllowedLines)
+	// Ensure we never take more than maxAllowedLines
+	if end-start > maxAllowedLines {
+		end = start + maxAllowedLines
+	}
+
+	visibleLines := lines[start:end]
+	// Ensure we have exactly maxAllowedLines or less
+	if len(visibleLines) > maxAllowedLines {
+		visibleLines = visibleLines[:maxAllowedLines]
+	}
+	content = strings.Join(visibleLines, "\n")
+
+	// Add scroll indicator to title
+	title := p.title
+	if len(lines) > displayLines {
+		currentPage := p.scrollPos/displayLines + 1
+		totalPages := (len(lines) + displayLines - 1) / displayLines
+		scrollIndicator := fmt.Sprintf(" (%d/%d)", min(currentPage, totalPages), totalPages)
+		title += scrollIndicator
+	}
+
+	style := panelStyle
+	if active {
+		style = style.BorderForeground(lipgloss.Color("229"))
+	}
+
+	// Build panel content: title + content
+	titleRendered := titleStyle.Render(title)
+
+	// CRITICAL: For pods panel, be extra strict - ensure content fits exactly
+	// Calculate exact space for content (maxHeight - title - blank lines)
+	titleLines := strings.Split(titleRendered, "\n")
+	titleHeight := len(titleLines)
+	// maxHeight includes: border (2) + padding (2) + title + blank (1) + content
+	// So content should be maxHeight - titleHeight - 3 (border/padding/blank)
+	strictContentLines := max(1, maxHeight-titleHeight-3)
+
+	// If content exceeds strict limit, truncate it
+	contentLines := strings.Split(content, "\n")
+	if len(contentLines) > strictContentLines {
+		contentLines = contentLines[:strictContentLines]
+		content = strings.Join(contentLines, "\n")
+	}
+
+	panelContent := titleRendered + "\n\n" + content
+
+	// CRITICAL: Final safety check - truncate panelContent to exactly maxHeight lines
+	// This ensures the panel never exceeds its allocated height, even with ANSI codes
+	fullContentLines := strings.Split(panelContent, "\n")
+	if len(fullContentLines) > maxHeight {
+		// Truncate to exactly maxHeight lines - no more, no less
+		fullContentLines = fullContentLines[:maxHeight]
+		panelContent = strings.Join(fullContentLines, "\n")
+	}
+
+	if width > 0 {
+		return style.Height(maxHeight).Width(width).Render(panelContent)
+	}
+	return style.Height(maxHeight).Render(panelContent)
 }
 
 func (m model) renderPanel(p *panel, active bool, maxHeight int, width int) string {
