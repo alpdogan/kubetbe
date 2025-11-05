@@ -15,7 +15,6 @@ A Kubernetes helper tool similar to k9s. Written in Go, it allows you to view po
 
 - Go 1.21 or higher
 - `kubectl` installed and configured
-- `kubens` tool installed (for namespace listing)
 
 ## Installation
 

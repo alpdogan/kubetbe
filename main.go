@@ -123,34 +123,28 @@ func (m model) Init() tea.Cmd {
 
 func fetchNamespaces(searchTerm string) tea.Cmd {
 	return func() tea.Msg {
-		var cmd *exec.Cmd
-
-		// If search term is provided, filter namespaces
-		if searchTerm != "" {
-			// Use grep with proper escaping to avoid shell injection
-			cmd = exec.Command("sh", "-c", fmt.Sprintf("kubens | grep -i '%s'", strings.ReplaceAll(searchTerm, "'", "'\"'\"'")))
-		} else {
-			// Otherwise, get all namespaces
-			cmd = exec.Command("kubens")
-		}
+		// Use kubectl to get namespaces
+		cmd := exec.Command("kubectl", "get", "namespaces", "-o", "jsonpath={.items[*].metadata.name}")
 
 		output, err := cmd.Output()
 		if err != nil {
-			// If grep doesn't find anything, it returns error but that's okay
-			if searchTerm != "" {
-				// Return empty list for grep not found
-				return namespaceListMsg{namespaces: []string{}}
-			}
-			return errorMsg{err: fmt.Errorf("failed to run kubens command: %v", err)}
+			return errorMsg{err: fmt.Errorf("failed to run kubectl get namespaces command: %v", err)}
 		}
 
+		// Parse output - jsonpath returns space-separated names
+		allNamespaces := strings.Fields(string(output))
+
+		// Filter by search term if provided
 		namespaces := []string{}
-		scanner := bufio.NewScanner(strings.NewReader(string(output)))
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line != "" {
-				namespaces = append(namespaces, line)
+		if searchTerm != "" {
+			searchLower := strings.ToLower(searchTerm)
+			for _, ns := range allNamespaces {
+				if strings.Contains(strings.ToLower(ns), searchLower) {
+					namespaces = append(namespaces, ns)
+				}
 			}
+		} else {
+			namespaces = allNamespaces
 		}
 
 		return namespaceListMsg{namespaces: namespaces}
@@ -663,7 +657,7 @@ func (m model) renderNamespaceSelect() string {
 			b.WriteString("Try running without search term to see all namespaces\n")
 		} else {
 			b.WriteString("No namespaces found...\n")
-			b.WriteString("Command: kubens\n")
+			b.WriteString("Command: kubectl get namespaces\n")
 		}
 	} else {
 		for i, ns := range m.namespaces {
