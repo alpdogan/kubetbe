@@ -30,9 +30,30 @@ Prebuilt binaries are published per release. Run:
 curl -fsSL https://raw.githubusercontent.com/alpdogan/kubetbe/main/install.sh | bash
 ```
 
-The script detects your platform (macOS Intel/Apple Silicon, Linux AMD64), downloads the matching binary from GitHub Releases and drops it in `~/.local/bin` by default.
+The script:
 
-> Ensure `~/.local/bin` is on your `PATH`. Override via `INSTALL_DIR=/some/path bash install.sh`.
+1. Detects your platform (macOS Intel/Apple Silicon, Linux AMD64).
+2. Downloads the matching binary from the latest GitHub Release.
+3. Installs it to `~/.local/bin` (change via `INSTALL_DIR=/custom/path`).
+
+> **PATH reminder**  
+> Add `~/.local/bin` to your shell configuration if it is not already there:
+>
+> ```bash
+> # zsh (default on macOS)
+> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
+>
+> # bash (often default on Linux)
+> echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+> ```
+
+You can also clone the repo and run the script locally:
+
+```bash
+git clone https://github.com/alpdogan/kubetbe.git
+cd kubetbe
+INSTALL_DIR=/usr/local/bin bash install.sh   # requires sudo, optional
+```
 
 ### Option 2: Build from source
 
