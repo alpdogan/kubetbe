@@ -15,6 +15,13 @@ type PodDeleteMsg struct {
 	Err       error
 }
 
+type PodDescribeMsg struct {
+	Namespace string
+	Pod       string
+	Content   []string
+	Err       error
+}
+
 type ErrorMsg struct {
 	Err error
 }

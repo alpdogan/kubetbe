@@ -9,4 +9,5 @@ type LogUpdateMsg = msg.LogUpdateMsg
 type NamespaceListMsg = msg.NamespaceListMsg
 type NamespaceDeleteMsg = msg.NamespaceDeleteMsg
 type PodDeleteMsg = msg.PodDeleteMsg
+type PodDescribeMsg = msg.PodDescribeMsg
 type ErrorMsg = msg.ErrorMsg

@@ -100,7 +100,7 @@ func (m *Model) renderPanelView() string {
 	// Remaining height goes to single active log panel
 	// Show only ONE log panel at a time (Tab to switch between them)
 	logsPanelHeight := 0
-	if len(m.LogsPanels) > 0 {
+	if len(m.LogsPanels) > 0 || m.DescribePanel != nil {
 		remainingHeight := availableHeight - podsPanelHeight
 		// Use all remaining height for the single active log panel
 		logsPanelHeight = remainingHeight
@@ -125,17 +125,34 @@ func (m *Model) renderPanelView() string {
 			p.MaxLines = 20 // Default fallback
 		}
 	}
+	if m.DescribePanel != nil {
+		if logsPanelHeight > 0 {
+			m.DescribePanel.MaxLines = logsPanelHeight - 3
+		} else {
+			m.DescribePanel.MaxLines = 20
+		}
+	}
 
 	var sections []string
 
 	// Find active pod name for highlighting in pods panel
 	activePodName := ""
-	if len(m.LogsPanels) > 0 {
+	if m.DescribePanel != nil && m.ActivePanel == 1 {
+		activePodName = m.DescribeTarget
+	} else if len(m.LogsPanels) > 0 {
 		activeLogIndex := -1
-		if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
-			activeLogIndex = m.ActivePanel - 1
-		} else if len(m.LogsPanels) > 0 {
-			activeLogIndex = 0
+		if m.DescribePanel != nil {
+			if m.ActivePanel > 1 && m.ActivePanel <= 1+len(m.LogsPanels) {
+				activeLogIndex = m.ActivePanel - 2
+			} else if len(m.LogsPanels) > 0 {
+				activeLogIndex = 0
+			}
+		} else {
+			if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
+				activeLogIndex = m.ActivePanel - 1
+			} else if len(m.LogsPanels) > 0 {
+				activeLogIndex = 0
+			}
 		}
 		if activeLogIndex >= 0 && activeLogIndex < len(m.LogsPanels) {
 			// Extract pod name from log panel title (format: "Logs: pod-name-...")
@@ -182,8 +199,16 @@ func (m *Model) renderPanelView() string {
 		sections = append(sections, podsContent)
 	}
 
-	// Logs panel - show only the active log panel (Tab to switch)
-	if len(m.LogsPanels) > 0 {
+	// Describe panel - replaces logs area when active
+	if m.DescribePanel != nil {
+		describeContent := m.renderPanel(m.DescribePanel, m.ActivePanel == 1, logsPanelHeight, m.Width)
+		describeLines := strings.Split(describeContent, "\n")
+		if logsPanelHeight > 0 && len(describeLines) > logsPanelHeight {
+			describeLines = describeLines[:logsPanelHeight]
+			describeContent = strings.Join(describeLines, "\n")
+		}
+		sections = append(sections, describeContent)
+	} else if len(m.LogsPanels) > 0 {
 		// Find which log panel is active (activePanel 0 is pods, 1+ are log panels)
 		activeLogIndex := -1
 		if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
@@ -232,9 +257,24 @@ func (m *Model) renderPanelView() string {
 	}
 	combined := lipgloss.JoinVertical(lipgloss.Left, combinedSections...)
 
-	// Add footer - show current log panel info and active pod name
+	// Add footer - show current panel info
 	var footer string
-	if len(m.LogsPanels) > 0 {
+	if m.DescribePanel != nil {
+		describeDisplay := m.DescribeTarget
+		if len(describeDisplay) > 40 {
+			describeDisplay = describeDisplay[:37] + "..."
+		}
+		action := "i: Close describe"
+		if len(m.LogsPanels) > 0 {
+			action += " | Tab: Switch"
+		}
+		footer = fmt.Sprintf(
+			"\n%s | Describe: %s | %s | ↑↓: Scroll | d: Delete pod | b: Back | q: Quit",
+			TitleStyle.Render(fmt.Sprintf("Namespace: %s", m.SelectedNS)),
+			describeDisplay,
+			action,
+		)
+	} else if len(m.LogsPanels) > 0 {
 		activeLogIndex := -1
 		if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
 			activeLogIndex = m.ActivePanel - 1
@@ -256,14 +296,14 @@ func (m *Model) renderPanelView() string {
 		}
 
 		footer = fmt.Sprintf(
-			"\n%s | Active: %s | Tab: Switch (%d/%d) | ↑↓: Scroll | d: Delete pod | b: Back | q: Quit",
+			"\n%s | Active: %s | Tab: Switch (%d/%d) | ↑↓: Scroll | i: Describe | d: Delete pod | b: Back | q: Quit",
 			TitleStyle.Render(fmt.Sprintf("Namespace: %s", m.SelectedNS)),
 			activePodDisplay,
 			currentPanel, totalPanels,
 		)
 	} else {
 		footer = fmt.Sprintf(
-			"\n%s | Tab: Switch panel | ↑↓: Scroll | PgUp/PgDn: Page | Home/End: Jump | d: Delete pod | b: Back | q: Quit",
+			"\n%s | Tab: Switch panel | ↑↓: Scroll | PgUp/PgDn: Page | Home/End: Jump | i: Describe | d: Delete pod | b: Back | q: Quit",
 			TitleStyle.Render(fmt.Sprintf("Namespace: %s", m.SelectedNS)),
 		)
 	}

@@ -72,10 +72,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					m.PodDeleteConfirmation = ""
-				} else if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
-					p := m.LogsPanels[m.ActivePanel-1]
-					if p.ScrollPos > 0 {
-						p.ScrollPos--
+				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
+					if m.DescribePanel.ScrollPos > 0 {
+						m.DescribePanel.ScrollPos--
+					}
+				} else {
+					logIndex := m.activeLogPanelIndex()
+					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
+						p := m.LogsPanels[logIndex]
+						if p.ScrollPos > 0 {
+							p.ScrollPos--
+						}
 					}
 				}
 			}
@@ -100,11 +107,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					m.PodDeleteConfirmation = ""
-				} else if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
-					p := m.LogsPanels[m.ActivePanel-1]
-					maxScroll := utils.Max(0, len(p.Content)-p.MaxLines)
-					if p.ScrollPos < maxScroll {
-						p.ScrollPos++
+				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
+					maxScroll := utils.Max(0, len(m.DescribePanel.Content)-m.DescribePanel.MaxLines)
+					if m.DescribePanel.ScrollPos < maxScroll {
+						m.DescribePanel.ScrollPos++
+					}
+				} else {
+					logIndex := m.activeLogPanelIndex()
+					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
+						p := m.LogsPanels[logIndex]
+						maxScroll := utils.Max(0, len(p.Content)-p.MaxLines)
+						if p.ScrollPos < maxScroll {
+							p.ScrollPos++
+						}
 					}
 				}
 			}
@@ -123,9 +138,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					m.PodDeleteConfirmation = ""
-				} else if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
-					p := m.LogsPanels[m.ActivePanel-1]
-					p.ScrollPos = utils.Max(0, p.ScrollPos-p.MaxLines)
+				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
+					step := utils.Max(1, m.DescribePanel.MaxLines)
+					m.DescribePanel.ScrollPos = utils.Max(0, m.DescribePanel.ScrollPos-step)
+				} else {
+					logIndex := m.activeLogPanelIndex()
+					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
+						p := m.LogsPanels[logIndex]
+						p.ScrollPos = utils.Max(0, p.ScrollPos-p.MaxLines)
+					}
 				}
 			}
 
@@ -140,10 +161,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.PodCursor = utils.Min(len(podNames)-1, m.PodCursor+step)
 					}
 					m.PodDeleteConfirmation = ""
-				} else if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
-					p := m.LogsPanels[m.ActivePanel-1]
-					maxScroll := utils.Max(0, len(p.Content)-p.MaxLines)
-					p.ScrollPos = utils.Min(maxScroll, p.ScrollPos+p.MaxLines)
+				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
+					step := utils.Max(1, m.DescribePanel.MaxLines)
+					maxScroll := utils.Max(0, len(m.DescribePanel.Content)-m.DescribePanel.MaxLines)
+					m.DescribePanel.ScrollPos = utils.Min(maxScroll, m.DescribePanel.ScrollPos+step)
+				} else {
+					logIndex := m.activeLogPanelIndex()
+					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
+						p := m.LogsPanels[logIndex]
+						maxScroll := utils.Max(0, len(p.Content)-p.MaxLines)
+						p.ScrollPos = utils.Min(maxScroll, p.ScrollPos+p.MaxLines)
+					}
 				}
 			}
 
@@ -157,8 +185,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.PodCursor = 0
 					}
 					m.PodDeleteConfirmation = ""
-				} else if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
-					m.LogsPanels[m.ActivePanel-1].ScrollPos = 0
+				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
+					m.DescribePanel.ScrollPos = 0
+				} else {
+					logIndex := m.activeLogPanelIndex()
+					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
+						m.LogsPanels[logIndex].ScrollPos = 0
+					}
 				}
 			}
 
@@ -172,9 +205,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.PodCursor = len(podNames) - 1
 					}
 					m.PodDeleteConfirmation = ""
-				} else if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
-					p := m.LogsPanels[m.ActivePanel-1]
-					p.ScrollPos = utils.Max(0, len(p.Content)-p.MaxLines)
+				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
+					maxScroll := utils.Max(0, len(m.DescribePanel.Content)-m.DescribePanel.MaxLines)
+					m.DescribePanel.ScrollPos = maxScroll
+				} else {
+					logIndex := m.activeLogPanelIndex()
+					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
+						p := m.LogsPanels[logIndex]
+						p.ScrollPos = utils.Max(0, len(p.Content)-p.MaxLines)
+					}
 				}
 			}
 
@@ -186,6 +225,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.PodCursor = 0
 				m.PodDeleteConfirmation = ""
 				m.DeletingPod = ""
+				m.DescribePanel = nil
+				m.DescribeTarget = ""
 				// Initialize pods panel before starting watch
 				m.PodsPanel = &Panel{
 					Title:    fmt.Sprintf("Pods in %s", m.SelectedNS),
@@ -231,40 +272,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Already processing a delete; ignore additional requests
 					break
 				}
-				podNames := ParsePodNames(m.PodsPanel.Content)
-				if len(podNames) == 0 {
+				selectedPod, podNames := m.selectedPodAndList()
+				if len(podNames) == 0 || selectedPod == "" {
 					m.PodCursor = 0
-					break
-				}
-
-				var selectedPod string
-
-				// If a logs panel is active, use its pod name as the selected pod
-				if m.ActivePanel > 0 && m.ActivePanel <= len(m.LogsPanels) {
-					logPanel := m.LogsPanels[m.ActivePanel-1]
-					selectedPod = strings.TrimPrefix(logPanel.Title, "Logs: ")
-					if selectedPod != "" {
-						for i, name := range podNames {
-							if name == selectedPod {
-								m.PodCursor = i
-								break
-							}
-						}
-					}
-				}
-
-				// Fallback to cursor-controlled selection
-				if selectedPod == "" {
-					if m.PodCursor < 0 {
-						m.PodCursor = 0
-					}
-					if m.PodCursor >= len(podNames) {
-						m.PodCursor = len(podNames) - 1
-					}
-					selectedPod = podNames[m.PodCursor]
-				}
-
-				if selectedPod == "" {
 					break
 				}
 				if m.PodDeleteConfirmation == selectedPod {
@@ -275,20 +285,84 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.PodDeleteConfirmation = selectedPod
 			}
 
+		case "i":
+			if m.State == "panel_view" && m.PodsPanel != nil {
+				selectedPod, podNames := m.selectedPodAndList()
+				if len(podNames) == 0 || selectedPod == "" {
+					m.PodCursor = 0
+					break
+				}
+
+				// Toggle off if describe already showing for selected pod
+				if m.DescribePanel != nil && m.DescribeTarget == selectedPod {
+					m.DescribePanel = nil
+					m.DescribeTarget = ""
+					if len(m.LogsPanels) == 0 {
+						m.ActivePanel = 0
+					} else {
+						if m.ActivePanel > 1 {
+							m.ActivePanel--
+						} else if m.ActivePanel == 1 {
+							m.ActivePanel = 0
+						}
+					}
+					break
+				}
+
+				m.DescribeTarget = selectedPod
+				m.DescribePanel = &Panel{
+					Title:     fmt.Sprintf("Describe: %s", selectedPod),
+					Content:   []string{"Fetching describe..."},
+					MaxLines:  m.Height / 3,
+					ScrollPos: 0,
+					Watch:     false,
+				}
+				m.ActivePanel = 1
+				return m, kubectl.DescribePod(m.SelectedNS, selectedPod)
+			}
+
 		case "tab":
 			if m.State == "panel_view" {
+				if m.DescribePanel != nil {
+					if len(m.LogsPanels) == 0 {
+						m.DescribePanel = nil
+						m.DescribeTarget = ""
+						m.ActivePanel = 0
+						break
+					}
+					if m.ActivePanel == 1 {
+						m.DescribePanel = nil
+						m.DescribeTarget = ""
+						m.ActivePanel = 1
+						break
+					}
+				}
+				totalPanels := m.totalPanelCount()
+				if totalPanels <= 0 {
+					break
+				}
 				if m.ActivePanel != 0 {
 					m.PodDeleteConfirmation = ""
 				}
-				m.ActivePanel = (m.ActivePanel + 1) % (1 + len(m.LogsPanels))
+				m.ActivePanel = (m.ActivePanel + 1) % totalPanels
 			}
 
 		case "shift+tab":
 			if m.State == "panel_view" {
+				if m.DescribePanel != nil && m.ActivePanel == 1 {
+					m.DescribePanel = nil
+					m.DescribeTarget = ""
+					m.ActivePanel = 0
+					break
+				}
+				totalPanels := m.totalPanelCount()
+				if totalPanels <= 0 {
+					break
+				}
 				if m.ActivePanel != 0 {
 					m.PodDeleteConfirmation = ""
 				}
-				m.ActivePanel = (m.ActivePanel - 1 + 1 + len(m.LogsPanels)) % (1 + len(m.LogsPanels))
+				m.ActivePanel = (m.ActivePanel - 1 + totalPanels) % totalPanels
 			}
 
 		case "b":
@@ -298,6 +372,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.PodCursor = 0
 				m.PodDeleteConfirmation = ""
 				m.DeletingPod = ""
+				m.DescribePanel = nil
+				m.DescribeTarget = ""
 				// Stop all watch commands
 				if m.PodsPanel != nil && m.PodsPanel.UpdateCmd != nil {
 					m.PodsPanel.UpdateCmd.Process.Kill()
@@ -366,6 +442,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Err = msg.Err
 		}
 
+	case PodDescribeMsg:
+		if msg.Err != nil {
+			m.Err = msg.Err
+		}
+		if m.DescribePanel != nil && m.DescribeTarget == msg.Pod {
+			m.DescribePanel.Content = msg.Content
+			m.DescribePanel.ScrollPos = 0
+		}
+
 	case PodUpdateMsg:
 		// Ensure podsPanel exists
 		if m.PodsPanel == nil {
@@ -405,6 +490,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(podNames) == 0 {
 				m.PodCursor = 0
 				m.PodDeleteConfirmation = ""
+				if m.DescribePanel != nil {
+					m.DescribePanel = nil
+					m.DescribeTarget = ""
+					if m.ActivePanel > 0 {
+						m.ActivePanel = utils.Min(m.ActivePanel, 1+len(m.LogsPanels))
+					}
+				}
 			} else {
 				if m.PodCursor >= len(podNames) {
 					m.PodCursor = len(podNames) - 1
@@ -422,6 +514,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					if !found {
 						m.PodDeleteConfirmation = ""
+					}
+				}
+				if m.DescribePanel != nil {
+					found := false
+					for _, name := range podNames {
+						if name == m.DescribeTarget {
+							found = true
+							break
+						}
+					}
+					if !found {
+						m.DescribePanel = nil
+						m.DescribeTarget = ""
+						if len(m.LogsPanels) > 0 {
+							if m.ActivePanel > 1 {
+								m.ActivePanel--
+							} else if m.ActivePanel == 1 {
+								m.ActivePanel = 0
+							}
+						} else {
+							m.ActivePanel = 0
+						}
 					}
 				}
 			}
@@ -489,4 +603,80 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m *Model) activeLogPanelIndex() int {
+	if len(m.LogsPanels) == 0 {
+		return -1
+	}
+	if m.DescribePanel != nil {
+		if m.ActivePanel <= 1 {
+			return -1
+		}
+		idx := m.ActivePanel - 2
+		if idx >= 0 && idx < len(m.LogsPanels) {
+			return idx
+		}
+		if len(m.LogsPanels) > 0 {
+			return 0
+		}
+		return -1
+	}
+	if m.ActivePanel <= 0 {
+		return -1
+	}
+	idx := m.ActivePanel - 1
+	if idx >= 0 && idx < len(m.LogsPanels) {
+		return idx
+	}
+	if len(m.LogsPanels) > 0 {
+		return 0
+	}
+	return -1
+}
+
+func (m *Model) selectedPodAndList() (string, []string) {
+	if m.PodsPanel == nil {
+		return "", nil
+	}
+	podNames := ParsePodNames(m.PodsPanel.Content)
+	if len(podNames) == 0 {
+		m.PodCursor = 0
+		return "", podNames
+	}
+
+	candidate := ""
+	if m.DescribePanel != nil && m.ActivePanel == 1 && m.DescribeTarget != "" {
+		candidate = m.DescribeTarget
+	} else {
+		logIndex := m.activeLogPanelIndex()
+		if logIndex >= 0 && logIndex < len(m.LogsPanels) {
+			title := m.LogsPanels[logIndex].Title
+			candidate = strings.TrimPrefix(title, "Logs: ")
+		}
+	}
+	if candidate != "" {
+		for i, name := range podNames {
+			if name == candidate {
+				m.PodCursor = i
+				return candidate, podNames
+			}
+		}
+	}
+
+	if m.PodCursor < 0 {
+		m.PodCursor = 0
+	}
+	if m.PodCursor >= len(podNames) {
+		m.PodCursor = len(podNames) - 1
+	}
+	return podNames[m.PodCursor], podNames
+}
+
+func (m *Model) totalPanelCount() int {
+	count := 1 + len(m.LogsPanels)
+	if m.DescribePanel != nil {
+		count++
+	}
+	return count
 }

@@ -22,6 +22,8 @@ type Model struct {
 	DeletingNamespace     string // Namespace currently being deleted
 	PodDeleteConfirmation string // Pod to delete (empty if no confirmation pending)
 	DeletingPod           string // Pod currently being deleted
+	DescribePanel         *Panel // Panel to show describe output
+	DescribeTarget        string // Pod currently described
 }
 
 type Panel struct {
@@ -46,5 +48,7 @@ func InitialModel(searchTerm string) *Model {
 		DeletingNamespace:     "",
 		PodDeleteConfirmation: "",
 		DeletingPod:           "",
+		DescribePanel:         nil,
+		DescribeTarget:        "",
 	}
 }

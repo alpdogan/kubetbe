@@ -78,6 +78,37 @@ func DeletePod(namespace, pod string) tea.Cmd {
 	}
 }
 
+func DescribePod(namespace, pod string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("kubectl", "describe", "pod", pod, "-n", namespace)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return msg.PodDescribeMsg{
+				Namespace: namespace,
+				Pod:       pod,
+				Content:   []string{fmt.Sprintf("Describe error: %v", err)},
+				Err:       err,
+			}
+		}
+
+		lines := []string{}
+		scanner := bufio.NewScanner(strings.NewReader(string(output)))
+		for scanner.Scan() {
+			lines = append(lines, scanner.Text())
+		}
+		if len(lines) == 0 {
+			lines = []string{"No describe output..."}
+		}
+
+		return msg.PodDescribeMsg{
+			Namespace: namespace,
+			Pod:       pod,
+			Content:   lines,
+			Err:       nil,
+		}
+	}
+}
+
 func StartPodsWatch(namespace string) tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command("kubectl", "get", "pods", "-n", namespace)
