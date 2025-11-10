@@ -1,96 +1,115 @@
-# Kubernetes Helper (kubetbe)
+# Kubernetes Helper (`kubetbe`)
 
-A Kubernetes helper tool similar to k9s. Written in Go, it allows you to view pods and their logs in different panels using a TUI (Terminal User Interface).
+`kubetbe` is a lightweight TUI companion for `kubectl`. It focuses on the daily workflow of jumping between namespaces, finding pods, watching logs, deleting resources and quickly answering questions like “which service owns this IP?” – all from the terminal.
 
-## Features
+Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and Go.
 
-- 🎯 **Namespace Selection**: Lists namespaces with optional filtering via command line argument
-- 🔍 **Search Filtering**: Filter namespaces by search term (e.g., `kubetbe zeus` shows only namespaces containing "zeus")
-- 📊 **Pod Monitoring**: Displays pods in the selected namespace in real-time
-- 📝 **Log Monitoring**: Shows logs for each pod in separate panels
-- ⌨️ **Keyboard Control**: Easy navigation with arrow keys and Tab
-- 🎨 **Modern TUI**: Beautiful and user-friendly interface with Bubbletea
+## Highlights
+
+- 🎯 **Namespace navigator** with optional CLI filtering (`kubetbe prod`) and built‑in paging (10 items per page).
+- 🔁 **Live pod view** that refreshes automatically while preserving scroll position.
+- 🪵 **Structured log panes** – each pod gets its own scrollable panel.
+- 📝 **Describe on demand**: press `i` to fetch `kubectl describe pod`, rendered inline.
+- ❌ **Resource actions**: delete namespaces (`d` in namespace view) and pods (`d` in pod view) with confirmation.
+- 🔎 **Find service by IP**: press `f`, enter an IP, immediately see matching `kubectl get services --all-namespaces -o wide` rows.
+- 🧭 **Keyboard-first UX** with Vim style movement, tab cycling between panels, and page navigation via `Tab`, `Shift+Tab`, `←`, `→`.
 
 ## Requirements
 
-- Go 1.21 or higher
-- `kubectl` installed and configured
+- `kubectl` configured to talk to the cluster you want to inspect.
+- To **build from source**: Go 1.21+.
+- To **use prebuilt binaries**: no Go toolchain required.
 
 ## Installation
 
-```bash
-# Download dependencies
-go mod download
+### Option 1: Using the install script (recommended)
 
-# Run
+Prebuilt binaries are published per release. Run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alpdogan/kubetbe/main/install.sh | bash
+```
+
+The script detects your platform (macOS Intel/Apple Silicon, Linux AMD64), downloads the matching binary from GitHub Releases and drops it in `~/.local/bin` by default.
+
+> Ensure `~/.local/bin` is on your `PATH`. Override via `INSTALL_DIR=/some/path bash install.sh`.
+
+### Option 2: Build from source
+
+```bash
+git clone https://github.com/alpdogan/kubetbe.git
+cd kubetbe
+go build -o kubetbe .
+./kubetbe           # optional search term: ./kubetbe prod
+```
+
+## Usage & Shortcuts
+
+### Namespace view (startup screen)
+
+| Key(s)           | Action |
+|------------------|--------|
+| `↑` / `k` / `↓` / `j` | Move selection (automatically flips pages) |
+| `Tab` / `→` / `l`     | Next page (10 namespaces per page) |
+| `Shift+Tab` / `←` / `h` | Previous page |
+| `Enter`           | Open selected namespace (switch to panel view) |
+| `d`               | Delete namespace (confirmation required) |
+| `f`               | Find service by IP (enter IP, `Esc` to cancel) |
+| `Esc`             | Close service lookup results |
+| `r`               | Refresh namespace list |
+| `q`, `Ctrl+C`     | Quit |
+
+Tip: you can start the app filtered by a string: `kubetbe zeus` shows only namespaces containing “zeus”.
+
+### Panel view (after selecting a namespace)
+
+Layout:
+- **Pods Panel** (top, fixed height) – follows `kubectl get pods`.
+- **Log Panel(s)** (bottom) – one per pod; only the active log pane is shown at a time.
+- `Describe`: appears in place of logs when toggled.
+
+| Key(s)                  | Action |
+|-------------------------|--------|
+| `Tab` / `Shift+Tab`     | Cycle between pods panel, describe (if open), log panels |
+| `↑` / `k` / `↓` / `j`   | Scroll pods or logs (depending on active panel) |
+| `PgUp` / `PgDn`         | Page scroll logs/describe |
+| `Home` / `End`          | Jump to top/bottom of logs/describe |
+| `i`                     | Toggle describe for the selected pod |
+| `d`                     | Delete highlighted pod (with confirmation) |
+| `b`                     | Back to namespace view |
+| `q`, `Ctrl+C`           | Quit |
+
+## Service Lookup (`f`)
+
+While in the namespace selection screen press `f`:
+1. Enter an IP (e.g., `0.0.0.0`).
+2. Hit `Enter` – matching rows from `kubectl get services --all-namespaces -o wide` appear.
+3. `Esc` clears the results.
+
+## How It Works
+
+- Pods and logs refresh continuously using Bubble Tea commands.
+- Log tail is currently `--tail=50`; tweak in `kubectl/commands.go`.
+- Namespace pagination adapts to terminal height but caps list length at 10 per page.
+- The application keeps `kubectl` invocations simple so you can reason about what is happening under the hood.
+
+## Developing
+
+```bash
+go test ./...
 go run main.go
 ```
 
-Or build as binary:
+Binary builds for release:
 
 ```bash
-go build -o kubetbe main.go
-./kubetbe
+GOOS=darwin GOARCH=amd64 go build -o kubetbe-darwin-amd64 .
+GOOS=darwin GOARCH=arm64 go build -o kubetbe-darwin-arm64 .
+GOOS=linux  GOARCH=amd64 go build -o kubetbe-linux-amd64 .
 ```
 
-## Usage
+Upload these artifacts to a GitHub Release so the install script can fetch them.
 
-### Command Line Arguments
+---
 
-You can optionally provide a search term to filter namespaces:
-
-```bash
-# Show all namespaces
-./kubetbe
-
-# Show only namespaces containing "zeus" (case-insensitive)
-./kubetbe zeus
-
-# Show only namespaces containing "prod"
-./kubetbe prod
-```
-
-### Navigation
-
-1. **Namespace Selection**:
-   - When the application starts, it lists namespaces (filtered if search term provided)
-   - Use arrow keys (↑↓) to select a namespace
-   - Press Enter to confirm selection
-
-2. **Panel View**:
-   - Top panel: Pod list (`kubectl get pods`)
-   - Bottom panels: Logs for each pod (`kubectl logs`)
-   - Use Tab key to switch between panels
-   - Use arrow keys (↑↓) to scroll through logs
-
-3. **Keyboard Shortcuts**:
-   - `↑` / `k`: Scroll up (line by line)
-   - `↓` / `j`: Scroll down (line by line)
-   - `PgUp`: Scroll up one page
-   - `PgDn`: Scroll down one page
-   - `Home`: Jump to top
-   - `End`: Jump to bottom
-   - `Tab`: Switch to next panel
-   - `Shift+Tab`: Switch to previous panel
-   - `Enter`: Confirm selection in namespace view
-   - `b`: Go back to namespace selection
-   - `q` / `Ctrl+C`: Quit
-
-## Panel Layout
-
-- Pod panel is displayed at full width with scrollable content
-- Log panels are arranged side by side (2 columns) or vertically
-- Each panel is highlighted when active (yellow border)
-- Scroll position indicator shows current page (e.g., "Pods in namespace (2/5)")
-- Pod panel gets at least 1/3 of screen height for better visibility
-- All panels are automatically updated every 2 seconds
-- Scroll position is preserved when content updates (unless significant changes occur)
-
-## Notes
-
-- If no command line argument is provided, all namespaces are shown
-- Search term filtering is case-insensitive (uses `grep -i`)
-- Logs show the last 100 lines using `--tail=100` parameter
-- Pods are refreshed every 2 seconds
-- Logs are also updated every 2 seconds
-- Panels are automatically updated when pods are deleted or new pods are created
+Happy debugging! Contributions, bug reports and feature suggestions are welcome. Data plane feeling a little foggy? `kubetbe` is here to help. 🎉
