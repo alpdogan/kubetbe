@@ -24,6 +24,13 @@ type Model struct {
 	DeletingPod           string // Pod currently being deleted
 	DescribePanel         *Panel // Panel to show describe output
 	DescribeTarget        string // Pod currently described
+	ServiceIPQuery        string
+	ServiceIPResult       []string
+	ServiceIPSearching    bool
+	ServiceIPInputActive  bool
+	ServiceIPErr          error
+	NSTotalPages          int
+	NSCurrentPage         int
 }
 
 type Panel struct {
@@ -50,5 +57,12 @@ func InitialModel(searchTerm string) *Model {
 		DeletingPod:           "",
 		DescribePanel:         nil,
 		DescribeTarget:        "",
+		ServiceIPQuery:        "",
+		ServiceIPResult:       []string{},
+		ServiceIPSearching:    false,
+		ServiceIPInputActive:  false,
+		ServiceIPErr:          nil,
+		NSTotalPages:          1,
+		NSCurrentPage:         0,
 	}
 }

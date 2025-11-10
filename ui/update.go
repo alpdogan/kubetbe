@@ -25,6 +25,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.Width = msg.Width
 		m.Height = msg.Height
+		if m.State == "namespace_select" {
+			m.updateNamespacePagination()
+		}
 		if m.State == "panel_view" {
 			// Update panel sizes
 			if m.PodsPanel != nil {
@@ -36,6 +39,44 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		if m.State == "namespace_select" && m.ServiceIPInputActive {
+			handled := true
+			switch msg.Type {
+			case tea.KeyEnter:
+				ip := strings.TrimSpace(m.ServiceIPQuery)
+				if ip == "" {
+					m.ServiceIPErr = fmt.Errorf("please enter an IP address")
+					m.ServiceIPResult = nil
+					m.ServiceIPSearching = false
+				} else {
+					m.ServiceIPQuery = ip
+					m.ServiceIPSearching = true
+					m.ServiceIPErr = nil
+					m.ServiceIPResult = nil
+					m.ServiceIPInputActive = false
+					return m, kubectl.FindServiceByIP(ip)
+				}
+			case tea.KeyEscape:
+				m.ServiceIPInputActive = false
+				m.ServiceIPErr = nil
+				m.ServiceIPResult = nil
+				m.ServiceIPSearching = false
+				m.ServiceIPQuery = ""
+			case tea.KeyBackspace, tea.KeyDelete:
+				if len(m.ServiceIPQuery) > 0 {
+					runes := []rune(m.ServiceIPQuery)
+					m.ServiceIPQuery = string(runes[:len(runes)-1])
+				}
+			case tea.KeyRunes:
+				m.ServiceIPQuery += string(msg.Runes)
+			default:
+				handled = false
+			}
+			if handled {
+				return m, nil
+			}
+		}
+
 		switch msg.String() {
 		case "ctrl+c", "q":
 			m.Quit = true
@@ -55,9 +96,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.State == "namespace_select" {
 				m.DeleteConfirmation = "" // Clear delete confirmation on navigation
-				if m.Cursor > 0 {
-					m.Cursor--
-				}
+				m.moveNamespaceCursor(-1)
 			} else if m.State == "panel_view" {
 				if m.ActivePanel == 0 && m.PodsPanel != nil {
 					podNames := ParsePodNames(m.PodsPanel.Content)
@@ -90,9 +129,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			if m.State == "namespace_select" {
 				m.DeleteConfirmation = "" // Clear delete confirmation on navigation
-				if m.Cursor < len(m.Namespaces)-1 {
-					m.Cursor++
-				}
+				m.moveNamespaceCursor(1)
 			} else if m.State == "panel_view" {
 				if m.ActivePanel == 0 && m.PodsPanel != nil {
 					podNames := ParsePodNames(m.PodsPanel.Content)
@@ -124,99 +161,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-		case "pgup":
-			if m.State == "panel_view" && len(m.LogsPanels) <= 4 {
-				if m.ActivePanel == 0 && m.PodsPanel != nil {
-					podNames := ParsePodNames(m.PodsPanel.Content)
-					if len(podNames) == 0 {
-						m.PodCursor = 0
-					} else {
-						step := utils.Max(1, m.PodsPanel.MaxLines)
-						m.PodCursor = utils.Max(0, m.PodCursor-step)
-						if m.PodCursor >= len(podNames) {
-							m.PodCursor = len(podNames) - 1
-						}
-					}
-					m.PodDeleteConfirmation = ""
-				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
-					step := utils.Max(1, m.DescribePanel.MaxLines)
-					m.DescribePanel.ScrollPos = utils.Max(0, m.DescribePanel.ScrollPos-step)
-				} else {
-					logIndex := m.activeLogPanelIndex()
-					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
-						p := m.LogsPanels[logIndex]
-						p.ScrollPos = utils.Max(0, p.ScrollPos-p.MaxLines)
-					}
-				}
-			}
-
-		case "pgdown":
-			if m.State == "panel_view" && len(m.LogsPanels) <= 4 {
-				if m.ActivePanel == 0 && m.PodsPanel != nil {
-					podNames := ParsePodNames(m.PodsPanel.Content)
-					if len(podNames) == 0 {
-						m.PodCursor = 0
-					} else {
-						step := utils.Max(1, m.PodsPanel.MaxLines)
-						m.PodCursor = utils.Min(len(podNames)-1, m.PodCursor+step)
-					}
-					m.PodDeleteConfirmation = ""
-				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
-					step := utils.Max(1, m.DescribePanel.MaxLines)
-					maxScroll := utils.Max(0, len(m.DescribePanel.Content)-m.DescribePanel.MaxLines)
-					m.DescribePanel.ScrollPos = utils.Min(maxScroll, m.DescribePanel.ScrollPos+step)
-				} else {
-					logIndex := m.activeLogPanelIndex()
-					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
-						p := m.LogsPanels[logIndex]
-						maxScroll := utils.Max(0, len(p.Content)-p.MaxLines)
-						p.ScrollPos = utils.Min(maxScroll, p.ScrollPos+p.MaxLines)
-					}
-				}
-			}
-
-		case "home":
-			if m.State == "panel_view" && len(m.LogsPanels) <= 4 {
-				if m.ActivePanel == 0 && m.PodsPanel != nil {
-					podNames := ParsePodNames(m.PodsPanel.Content)
-					if len(podNames) == 0 {
-						m.PodCursor = 0
-					} else {
-						m.PodCursor = 0
-					}
-					m.PodDeleteConfirmation = ""
-				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
-					m.DescribePanel.ScrollPos = 0
-				} else {
-					logIndex := m.activeLogPanelIndex()
-					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
-						m.LogsPanels[logIndex].ScrollPos = 0
-					}
-				}
-			}
-
-		case "end":
-			if m.State == "panel_view" && len(m.LogsPanels) <= 4 {
-				if m.ActivePanel == 0 && m.PodsPanel != nil {
-					podNames := ParsePodNames(m.PodsPanel.Content)
-					if len(podNames) == 0 {
-						m.PodCursor = 0
-					} else {
-						m.PodCursor = len(podNames) - 1
-					}
-					m.PodDeleteConfirmation = ""
-				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
-					maxScroll := utils.Max(0, len(m.DescribePanel.Content)-m.DescribePanel.MaxLines)
-					m.DescribePanel.ScrollPos = maxScroll
-				} else {
-					logIndex := m.activeLogPanelIndex()
-					if logIndex >= 0 && logIndex < len(m.LogsPanels) {
-						p := m.LogsPanels[logIndex]
-						p.ScrollPos = utils.Max(0, len(p.Content)-p.MaxLines)
-					}
-				}
-			}
-
 		case "enter":
 			if m.State == "namespace_select" && len(m.Namespaces) > 0 {
 				m.SelectedNS = m.Namespaces[m.Cursor]
@@ -227,6 +171,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.DeletingPod = ""
 				m.DescribePanel = nil
 				m.DescribeTarget = ""
+				m.ServiceIPInputActive = false
 				// Initialize pods panel before starting watch
 				m.PodsPanel = &Panel{
 					Title:    fmt.Sprintf("Pods in %s", m.SelectedNS),
@@ -248,6 +193,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					kubectl.FetchNamespaces(m.SearchTerm),
 					Tick(), // Continue watch
 				)
+			}
+
+		case "esc":
+			if m.State == "namespace_select" {
+				m.ServiceIPInputActive = false
+				m.ServiceIPSearching = false
+				m.ServiceIPErr = nil
+				m.ServiceIPResult = nil
+				m.ServiceIPQuery = ""
+			}
+
+		case "f":
+			if m.State == "namespace_select" {
+				m.ServiceIPInputActive = true
+				m.ServiceIPSearching = false
+				m.ServiceIPErr = nil
 			}
 
 		case "d":
@@ -322,7 +283,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "tab":
-			if m.State == "panel_view" {
+			if m.State == "namespace_select" {
+				m.moveNamespaceCursor(1)
+			} else if m.State == "panel_view" {
 				if m.DescribePanel != nil {
 					if len(m.LogsPanels) == 0 {
 						m.DescribePanel = nil
@@ -348,7 +311,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case "shift+tab":
-			if m.State == "panel_view" {
+			if m.State == "namespace_select" {
+				m.moveNamespaceCursor(-1)
+			} else if m.State == "panel_view" {
 				if m.DescribePanel != nil && m.ActivePanel == 1 {
 					m.DescribePanel = nil
 					m.DescribeTarget = ""
@@ -363,6 +328,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.PodDeleteConfirmation = ""
 				}
 				m.ActivePanel = (m.ActivePanel - 1 + totalPanels) % totalPanels
+			}
+
+		case "right", "l":
+			if m.State == "namespace_select" {
+				m.changeNamespacePage(1)
+			}
+
+		case "left", "h":
+			if m.State == "namespace_select" {
+				m.changeNamespacePage(-1)
 			}
 
 		case "b":
@@ -414,6 +389,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.Namespaces) > 0 && m.Cursor >= len(m.Namespaces) {
 			m.Cursor = len(m.Namespaces) - 1
 		}
+		m.updateNamespacePagination()
 
 	case ErrorMsg:
 		m.Err = msg.Err
@@ -449,6 +425,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.DescribePanel != nil && m.DescribeTarget == msg.Pod {
 			m.DescribePanel.Content = msg.Content
 			m.DescribePanel.ScrollPos = 0
+		}
+
+	case ServiceLookupMsg:
+		m.ServiceIPSearching = false
+		if msg.Err != nil {
+			m.ServiceIPErr = msg.Err
+			m.ServiceIPResult = nil
+		} else {
+			m.ServiceIPErr = nil
+			if len(msg.Result) == 0 {
+				m.ServiceIPResult = []string{fmt.Sprintf("No service found for IP %s", msg.IP)}
+			} else {
+				m.ServiceIPResult = msg.Result
+			}
 		}
 
 	case PodUpdateMsg:
@@ -679,4 +669,98 @@ func (m *Model) totalPanelCount() int {
 		count++
 	}
 	return count
+}
+
+func (m *Model) visibleNamespacesPerPage() int {
+	// fixed max 10 per page, adjust for very small terminals
+	lines := m.Height - 8
+	if lines < 3 {
+		lines = 3
+	}
+	if lines > 10 {
+		lines = 10
+	}
+	return lines
+}
+
+func (m *Model) updateNamespacePagination() {
+	perPage := m.visibleNamespacesPerPage()
+	if perPage <= 0 {
+		perPage = 1
+	}
+	total := len(m.Namespaces)
+	if total == 0 {
+		m.NSTotalPages = 1
+		m.NSCurrentPage = 0
+		m.Cursor = 0
+		return
+	}
+
+	m.NSTotalPages = (total + perPage - 1) / perPage
+	if m.NSTotalPages < 1 {
+		m.NSTotalPages = 1
+	}
+
+	if m.Cursor >= total {
+		m.Cursor = total - 1
+	}
+	m.NSCurrentPage = m.Cursor / perPage
+}
+
+func (m *Model) moveNamespaceCursor(delta int) {
+	total := len(m.Namespaces)
+	if total == 0 {
+		m.Cursor = 0
+		m.NSCurrentPage = 0
+		m.NSTotalPages = 1
+		return
+	}
+	m.Cursor += delta
+	if m.Cursor < 0 {
+		m.Cursor = 0
+	} else if m.Cursor >= total {
+		m.Cursor = total - 1
+	}
+	m.updateNamespacePagination()
+}
+
+func (m *Model) changeNamespacePage(delta int) {
+	total := len(m.Namespaces)
+	if total == 0 {
+		return
+	}
+	perPage := m.visibleNamespacesPerPage()
+	m.NSCurrentPage += delta
+	if m.NSCurrentPage < 0 {
+		m.NSCurrentPage = 0
+	} else if m.NSCurrentPage >= m.NSTotalPages {
+		m.NSCurrentPage = m.NSTotalPages - 1
+	}
+	start := m.NSCurrentPage * perPage
+	if start >= total {
+		start = total - 1
+	}
+	if start < 0 {
+		start = 0
+	}
+	m.Cursor = start
+	m.DeleteConfirmation = ""
+	m.updateNamespacePagination()
+}
+
+func (m *Model) jumpNamespaceToStart() {
+	if len(m.Namespaces) == 0 {
+		return
+	}
+	m.Cursor = 0
+	m.updateNamespacePagination()
+}
+
+func (m *Model) jumpNamespaceToEnd() {
+	total := len(m.Namespaces)
+	if total == 0 {
+		return
+	}
+	m.Cursor = total - 1
+	m.updateNamespacePagination()
 }

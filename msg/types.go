@@ -22,6 +22,12 @@ type PodDescribeMsg struct {
 	Err       error
 }
 
+type ServiceLookupMsg struct {
+	IP     string
+	Result []string
+	Err    error
+}
+
 type ErrorMsg struct {
 	Err error
 }

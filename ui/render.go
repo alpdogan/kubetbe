@@ -44,7 +44,20 @@ func (m *Model) renderNamespaceSelect() string {
 			b.WriteString("Command: kubectl get namespaces\n")
 		}
 	} else {
-		for i, ns := range m.Namespaces {
+		perPage := m.visibleNamespacesPerPage()
+		start := m.NSCurrentPage * perPage
+		if start < 0 {
+			start = 0
+		}
+		if start >= len(m.Namespaces) {
+			start = len(m.Namespaces) - 1
+		}
+		end := start + perPage
+		if end > len(m.Namespaces) {
+			end = len(m.Namespaces)
+		}
+		for i := start; i < end; i++ {
+			ns := m.Namespaces[i]
 			cursor := " "
 			style := NormalStyle
 			if i == m.Cursor {
@@ -57,9 +70,37 @@ func (m *Model) renderNamespaceSelect() string {
 			}
 			b.WriteString(fmt.Sprintf("%s %s\n", cursor, style.Render(displayName)))
 		}
+		if m.NSTotalPages > 1 {
+			b.WriteString(InfoStyle.Render(fmt.Sprintf("\nPage %d/%d\n", m.NSCurrentPage+1, m.NSTotalPages)))
+		}
 	}
 
 	b.WriteString("\n")
+
+	// Service lookup section
+	if m.ServiceIPInputActive || m.ServiceIPSearching || m.ServiceIPErr != nil || len(m.ServiceIPResult) > 0 {
+		b.WriteString(TitleStyle.Render("Find service by IP"))
+		b.WriteString("\n")
+		if m.ServiceIPInputActive {
+			inputLabel := "IP: "
+			inputValue := m.ServiceIPQuery
+			b.WriteString(SelectedStyle.Render(inputLabel + inputValue + "_"))
+			b.WriteString("\n")
+			b.WriteString("Enter IP and press Enter to search, Esc to cancel\n")
+		} else if m.ServiceIPQuery != "" {
+			b.WriteString(fmt.Sprintf("IP: %s\n", m.ServiceIPQuery))
+		}
+		if m.ServiceIPSearching {
+			b.WriteString(InfoStyle.Render("Searching services...\n"))
+		} else if m.ServiceIPErr != nil {
+			b.WriteString(ErrorStyle.Render(fmt.Sprintf("Error: %v\n", m.ServiceIPErr)))
+		} else if len(m.ServiceIPResult) > 0 {
+			for _, line := range m.ServiceIPResult {
+				b.WriteString(line + "\n")
+			}
+		}
+		b.WriteString("\n")
+	}
 
 	if m.DeletingNamespace != "" {
 		b.WriteString(InfoStyle.Render(fmt.Sprintf("Deleting namespace '%s'...\n", m.DeletingNamespace)))
@@ -71,7 +112,7 @@ func (m *Model) renderNamespaceSelect() string {
 	}
 
 	// Show help text
-	helpText := "↑↓: Select, Enter: Confirm"
+	helpText := "↑↓: Select, Enter: Confirm, Tab/Shift+Tab or ←→: Page, f: Find service"
 	if m.NamespaceWatch {
 		helpText += ", R: Refresh, d: Delete"
 	} else {

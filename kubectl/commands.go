@@ -109,6 +109,39 @@ func DescribePod(namespace, pod string) tea.Cmd {
 	}
 }
 
+func FindServiceByIP(ip string) tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("kubectl", "get", "services", "--all-namespaces", "-o", "wide")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return msg.ServiceLookupMsg{
+				IP:  ip,
+				Err: fmt.Errorf("failed to fetch services: %v", err),
+			}
+		}
+
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		var results []string
+		if len(lines) > 0 {
+			header := lines[0]
+			for _, line := range lines[1:] {
+				if strings.Contains(line, ip) {
+					if len(results) == 0 {
+						results = append(results, header)
+					}
+					results = append(results, line)
+				}
+			}
+		}
+
+		return msg.ServiceLookupMsg{
+			IP:     ip,
+			Result: results,
+			Err:    nil,
+		}
+	}
+}
+
 func StartPodsWatch(namespace string) tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command("kubectl", "get", "pods", "-n", namespace)
