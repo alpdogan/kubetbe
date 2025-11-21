@@ -32,9 +32,11 @@ curl -fsSL https://raw.githubusercontent.com/alpdogan/kubetbe/main/install.sh | 
 
 The script:
 
-1. Detects your platform (macOS Intel/Apple Silicon, Linux AMD64).
-2. Downloads the matching binary from the latest GitHub Release.
-3. Installs it to `~/.local/bin` (change via `INSTALL_DIR=/custom/path`).
+1. Fetches the latest version from GitHub Releases automatically.
+2. Detects your platform (macOS Intel/Apple Silicon, Linux AMD64).
+3. Downloads the matching binary from the latest GitHub Release.
+4. Installs it to `~/.local/bin` (change via `INSTALL_DIR=/custom/path`).
+5. If `kubetbe` is already installed, it will update to the latest version (or skip if already up to date).
 
 > **PATH reminder**  
 > Add `~/.local/bin` to your shell configuration if it is not already there:
