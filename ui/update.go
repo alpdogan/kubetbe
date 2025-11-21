@@ -307,7 +307,52 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.ActivePanel != 0 {
 					m.PodDeleteConfirmation = ""
 				}
-				m.ActivePanel = (m.ActivePanel + 1) % totalPanels
+				nextPanel := (m.ActivePanel + 1) % totalPanels
+				m.ActivePanel = nextPanel
+
+				// Lazy load: if switching to a log panel that doesn't exist yet, create it
+				if nextPanel > 0 {
+					var targetPodName string
+					if m.DescribePanel != nil {
+						if nextPanel == 1 {
+							// Describe panel, skip
+							break
+						}
+						targetPodIndex := nextPanel - 2
+						if targetPodIndex >= 0 && targetPodIndex < len(m.AvailablePods) {
+							targetPodName = m.AvailablePods[targetPodIndex]
+						}
+					} else {
+						targetPodIndex := nextPanel - 1
+						if targetPodIndex >= 0 && targetPodIndex < len(m.AvailablePods) {
+							targetPodName = m.AvailablePods[targetPodIndex]
+						}
+					}
+
+					if targetPodName != "" {
+						// Check if log panel already exists
+						exists := false
+						for _, p := range m.LogsPanels {
+							if strings.TrimPrefix(p.Title, "Logs: ") == targetPodName {
+								exists = true
+								break
+							}
+						}
+
+						if !exists {
+							// Create new log panel and start fetching logs
+							newPanel := &Panel{
+								Title:     "Logs: " + targetPodName,
+								Content:   []string{"Loading logs..."},
+								MaxLines:  20,
+								ScrollPos: 0,
+								Watch:     true,
+							}
+							m.LogsPanels = append(m.LogsPanels, newPanel)
+							return m, kubectl.StartLogWatch(targetPodName, m.SelectedNS)
+						}
+					}
+				}
 			}
 
 		case "shift+tab":
@@ -327,7 +372,52 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.ActivePanel != 0 {
 					m.PodDeleteConfirmation = ""
 				}
-				m.ActivePanel = (m.ActivePanel - 1 + totalPanels) % totalPanels
+				nextPanel := (m.ActivePanel - 1 + totalPanels) % totalPanels
+				m.ActivePanel = nextPanel
+
+				// Lazy load: if switching to a log panel that doesn't exist yet, create it
+				if nextPanel > 0 {
+					var targetPodName string
+					if m.DescribePanel != nil {
+						if nextPanel == 1 {
+							// Describe panel, skip
+							break
+						}
+						targetPodIndex := nextPanel - 2
+						if targetPodIndex >= 0 && targetPodIndex < len(m.AvailablePods) {
+							targetPodName = m.AvailablePods[targetPodIndex]
+						}
+					} else {
+						targetPodIndex := nextPanel - 1
+						if targetPodIndex >= 0 && targetPodIndex < len(m.AvailablePods) {
+							targetPodName = m.AvailablePods[targetPodIndex]
+						}
+					}
+
+					if targetPodName != "" {
+						// Check if log panel already exists
+						exists := false
+						for _, p := range m.LogsPanels {
+							if strings.TrimPrefix(p.Title, "Logs: ") == targetPodName {
+								exists = true
+								break
+							}
+						}
+
+						if !exists {
+							// Create new log panel and start fetching logs
+							newPanel := &Panel{
+								Title:     "Logs: " + targetPodName,
+								Content:   []string{"Loading logs..."},
+								MaxLines:  20,
+								ScrollPos: 0,
+								Watch:     true,
+							}
+							m.LogsPanels = append(m.LogsPanels, newPanel)
+							return m, kubectl.StartLogWatch(targetPodName, m.SelectedNS)
+						}
+					}
+				}
 			}
 
 		case "right", "l":
@@ -530,20 +620,32 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			oldPodCount := len(m.LogsPanels)
-			m.LogsPanels = UpdateLogsPanels(m.LogsPanels, podNames, m.SelectedNS)
+			// Update available pods list, but don't create log panels yet
+			// Log panels will be created lazily when user navigates to them
+			m.AvailablePods = podNames
 
-			// Start log fetching for new pods
-			if len(m.LogsPanels) > oldPodCount {
-				var cmds []tea.Cmd
-				for i := oldPodCount; i < len(m.LogsPanels); i++ {
-					// Extract pod name from title
-					title := m.LogsPanels[i].Title
-					podName := strings.TrimPrefix(title, "Logs: ")
-					cmds = append(cmds, kubectl.StartLogWatch(podName, m.SelectedNS))
+			// Clean up log panels for pods that no longer exist
+			var validLogPanels []*Panel
+			for _, p := range m.LogsPanels {
+				podName := strings.TrimPrefix(p.Title, "Logs: ")
+				found := false
+				for _, name := range podNames {
+					if name == podName {
+						found = true
+						break
+					}
 				}
-				return m, tea.Batch(cmds...)
+				if found {
+					validLogPanels = append(validLogPanels, p)
+				} else {
+					// Stop watching logs for deleted pods
+					if p.UpdateCmd != nil {
+						p.UpdateCmd.Process.Kill()
+						p.UpdateCmd = nil
+					}
+				}
 			}
+			m.LogsPanels = validLogPanels
 		}
 
 	case LogUpdateMsg:
@@ -577,7 +679,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.State == "panel_view" && m.PodsPanel != nil && m.PodsPanel.Watch {
 			cmds = append(cmds, kubectl.StartPodsWatch(m.SelectedNS))
 
-			// Also refresh logs for all pods
+			// Only refresh logs for panels that are already loaded (lazy loading)
 			for _, logPanel := range m.LogsPanels {
 				if logPanel.Watch {
 					podName := strings.TrimPrefix(logPanel.Title, "Logs: ")
@@ -664,7 +766,8 @@ func (m *Model) selectedPodAndList() (string, []string) {
 }
 
 func (m *Model) totalPanelCount() int {
-	count := 1 + len(m.LogsPanels)
+	// Count: pods panel (1) + describe panel (if exists) + all available pods
+	count := 1 + len(m.AvailablePods)
 	if m.DescribePanel != nil {
 		count++
 	}

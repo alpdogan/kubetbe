@@ -31,6 +31,7 @@ type Model struct {
 	ServiceIPErr          error
 	NSTotalPages          int
 	NSCurrentPage         int
+	AvailablePods         []string // List of all pods (for lazy log loading)
 }
 
 type Panel struct {
@@ -64,5 +65,6 @@ func InitialModel(searchTerm string) *Model {
 		ServiceIPErr:          nil,
 		NSTotalPages:          1,
 		NSCurrentPage:         0,
+		AvailablePods:         []string{},
 	}
 }
