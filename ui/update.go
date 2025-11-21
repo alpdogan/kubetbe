@@ -98,20 +98,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.DeleteConfirmation = "" // Clear delete confirmation on navigation
 				m.moveNamespaceCursor(-1)
 			} else if m.State == "panel_view" {
-				if m.ActivePanel == 0 && m.PodsPanel != nil {
-					podNames := ParsePodNames(m.PodsPanel.Content)
-					if len(podNames) == 0 {
-						m.PodCursor = 0
-					} else {
-						if m.PodCursor > 0 {
-							m.PodCursor--
-						}
-						if m.PodCursor >= len(podNames) {
-							m.PodCursor = len(podNames) - 1
-						}
-					}
-					m.PodDeleteConfirmation = ""
-				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
+				// Up/down only for scrolling logs/describe, not for pod navigation
+				if m.DescribePanel != nil && m.ActivePanel == 1 {
 					if m.DescribePanel.ScrollPos > 0 {
 						m.DescribePanel.ScrollPos--
 					}
@@ -131,20 +119,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.DeleteConfirmation = "" // Clear delete confirmation on navigation
 				m.moveNamespaceCursor(1)
 			} else if m.State == "panel_view" {
-				if m.ActivePanel == 0 && m.PodsPanel != nil {
-					podNames := ParsePodNames(m.PodsPanel.Content)
-					if len(podNames) == 0 {
-						m.PodCursor = 0
-					} else {
-						if m.PodCursor < len(podNames)-1 {
-							m.PodCursor++
-						}
-						if m.PodCursor >= len(podNames) {
-							m.PodCursor = len(podNames) - 1
-						}
-					}
-					m.PodDeleteConfirmation = ""
-				} else if m.DescribePanel != nil && m.ActivePanel == 1 {
+				// Up/down only for scrolling logs/describe, not for pod navigation
+				if m.DescribePanel != nil && m.ActivePanel == 1 {
 					maxScroll := utils.Max(0, len(m.DescribePanel.Content)-m.DescribePanel.MaxLines)
 					if m.DescribePanel.ScrollPos < maxScroll {
 						m.DescribePanel.ScrollPos++
@@ -622,8 +598,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 
-			// Update available pods list, but don't create log panels yet
-			// Log panels will be created lazily when user navigates to them
+			// Update available pods list
 			m.AvailablePods = podNames
 
 			// Clean up log panels for pods that no longer exist
@@ -648,6 +623,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.LogsPanels = validLogPanels
+
+			// Auto-load logs for first pod if no log panels exist
+			if len(m.LogsPanels) == 0 && len(podNames) > 0 {
+				firstPod := podNames[0]
+				newPanel := &Panel{
+					Title:     "Logs: " + firstPod,
+					Content:   []string{"Loading logs..."},
+					MaxLines:  20,
+					ScrollPos: 0,
+					Watch:     true,
+				}
+				m.LogsPanels = append(m.LogsPanels, newPanel)
+				m.ActivePanel = 1 // Switch to log panel
+				m.PendingLogLoad = firstPod
+				return m, StartLogLoadTimer(firstPod)
+			}
 		}
 
 	case LogUpdateMsg:
