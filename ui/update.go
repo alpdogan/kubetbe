@@ -340,7 +340,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 
 						if !exists {
-							// Create new log panel and start fetching logs
+							// Create new log panel and start timer for delayed log loading (3 seconds)
 							newPanel := &Panel{
 								Title:     "Logs: " + targetPodName,
 								Content:   []string{"Loading logs..."},
@@ -349,7 +349,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								Watch:     true,
 							}
 							m.LogsPanels = append(m.LogsPanels, newPanel)
-							return m, kubectl.StartLogWatch(targetPodName, m.SelectedNS)
+							m.PendingLogLoad = targetPodName
+							return m, StartLogLoadTimer(targetPodName)
 						}
 					}
 				}
@@ -405,7 +406,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 
 						if !exists {
-							// Create new log panel and start fetching logs
+							// Create new log panel and start timer for delayed log loading (3 seconds)
 							newPanel := &Panel{
 								Title:     "Logs: " + targetPodName,
 								Content:   []string{"Loading logs..."},
@@ -414,7 +415,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								Watch:     true,
 							}
 							m.LogsPanels = append(m.LogsPanels, newPanel)
-							return m, kubectl.StartLogWatch(targetPodName, m.SelectedNS)
+							m.PendingLogLoad = targetPodName
+							return m, StartLogLoadTimer(targetPodName)
 						}
 					}
 				}
@@ -665,6 +667,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					break
 				}
 			}
+		}
+
+	case StartLogLoadMsg:
+		// 3 seconds have passed, start loading logs for the pending pod
+		if m.PendingLogLoad == msg.PodName {
+			m.PendingLogLoad = ""
+			return m, kubectl.StartLogWatch(msg.PodName, m.SelectedNS)
 		}
 
 	case TickMsg:

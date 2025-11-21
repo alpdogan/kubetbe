@@ -12,3 +12,4 @@ type PodDeleteMsg = msg.PodDeleteMsg
 type PodDescribeMsg = msg.PodDescribeMsg
 type ServiceLookupMsg = msg.ServiceLookupMsg
 type ErrorMsg = msg.ErrorMsg
+type StartLogLoadMsg = msg.StartLogLoadMsg

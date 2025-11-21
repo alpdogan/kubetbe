@@ -44,3 +44,7 @@ type LogUpdateMsg struct {
 }
 
 type TickMsg struct{}
+
+type StartLogLoadMsg struct {
+	PodName string
+}

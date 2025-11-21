@@ -32,6 +32,7 @@ type Model struct {
 	NSTotalPages          int
 	NSCurrentPage         int
 	AvailablePods         []string // List of all pods (for lazy log loading)
+	PendingLogLoad        string  // Pod name waiting for log load (empty if none)
 }
 
 type Panel struct {
@@ -66,5 +67,6 @@ func InitialModel(searchTerm string) *Model {
 		NSTotalPages:          1,
 		NSCurrentPage:         0,
 		AvailablePods:         []string{},
+		PendingLogLoad:        "",
 	}
 }
